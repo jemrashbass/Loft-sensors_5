@@ -13,6 +13,7 @@ extern "C" {
 //#include "TelnetPrint.h"
 #include <DHT.h>
 #include <VL53L0X.h>
+#include <Jem_credentials_HDI.h>
 //#include <HCSR04.h>
 //#include <OneWire.h>
 //#include <DallasTemperature.h>
@@ -106,16 +107,6 @@ IPAddress myIP(10, 0, 1, 28);
 #define MQTT_HOST IPAddress(192, 168, 1, 125)
 */
 
-//HDI location data
-#define WIFI_SSID "HealthDataInsight"
-#define WIFI_PASSWORD "qu1ckstartgu1de"
-
-// Raspberry Pi Mosquitto MQTT Broker
-#define MQTT_HOST IPAddress(10, 0, 1, 30)
-
-// For a cloud MQTT broker, type the domain name
-//#define MQTT_HOST "example.com"
-#define MQTT_PORT 1883
 
 // MQTT Topics
 #define MQTT_PUB_LOFT_DIST "esp/VL53L0X/loft/distancecm"
@@ -237,7 +228,7 @@ void setup() {
   mqttClient.onPublish(onMqttPublish);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
   // If your broker requires authentication (username and password), set them below
-  mqttClient.setCredentials("jem", "Th1spassw0rd");
+  mqttClient.setCredentials(MQTT_ID MQTT_PASSWORD);
   connectToWifi();
 
 
