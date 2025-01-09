@@ -15,7 +15,7 @@
 
 
 #define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP  1200        /* Time ESP32 will go to sleep for (in seconds) */
+#define TIME_TO_SLEEP  300        /* Time ESP32 will go to sleep for (in seconds) */
 
 #define ACK_TOPIC "esp32/ack"
 
@@ -28,6 +28,7 @@ unsigned long suspendSleepTimeout = 60000; // length in milliseconds
 unsigned long suspendSleepSetTime = 0; // When suspendSleep was last set
 bool timeToSleep = true; 
 
+
 //parameter for PWM A02YYM depth sensor
 #define DISTANCE_SENSOR 26
 #define PWM_SIGNAL 25
@@ -37,7 +38,7 @@ bool timeToSleep = true;
 #define DUTY_CYCLE 100 // 50% duty cycle. Max value for 8-bit resolution is 255
 #define CONVERSION_FACTOR 57 // 57 microseconds per cm
 
-
+/*
 //define flow sensor
 #define FLOW_SENSOR1_PIN 16
 
@@ -46,16 +47,18 @@ bool timeToSleep = true;
 int state = LOW;            // by default, no motion detected
 int RCWL_detected = 0;
 #define  LED1 23
+*/
 
 //define lightmeter 
 BH1750 lightMeter;
 
 //water level variables
-float tank_depth = 189; // the height of the empty tank in cm
+float tank_depth = 50; // the height of the empty tank in cm
 
 //Define temperature sensor
 #define DS18B20_PIN 13
 
+/*
 // define PIR and LED
 //const int motionSensorPin = 16; // (marked PIR on Board)
 //const int LED1 = 4; // LED connected to digital pin 4
@@ -65,6 +68,7 @@ float tank_depth = 189; // the height of the empty tank in cm
 
 // define ADC input from solar panel
 #define SOLAR_INPUT 35
+*/
 
 // Setup a oneWire instance to communicate with any OneWire device
 OneWire oneWire(DS18B20_PIN);
@@ -88,6 +92,8 @@ DeviceAddress sensor1 = { 0x28, 0x29, 0x13, 0x0F, 0x12, 0x21, 0x1, 0xC8 };
 
 
 RTC_DATA_ATTR int bootCount = 0;
+
+/* 
 volatile int pulseCount1 = 0;
 float flowRate1;
 float totalVolumePerHour1 = 0;
@@ -112,6 +118,7 @@ volatile bool pulseDetected = false;  // variable to keep track of pulse detecti
 void ICACHE_RAM_ATTR pulseDetection() {  // ISR to set pulseDetected to true when a pulse is detected
   pulseDetected = true;
 }
+*/
 
 AsyncMqttClient mqttClient;
 TimerHandle_t mqttReconnectTimer;
@@ -119,11 +126,12 @@ TimerHandle_t wifiReconnectTimer;
 
 uint16_t lastPacketId = 0;
 
+/*
 AsyncWebServer server(80);  // Initialize the web server
 
 unsigned long ota_progress_millis = 0;
 
-/*void onOTAStart() {
+void onOTAStart() {
   // Log when OTA has started
   Serial.println("OTA update started!");
   // <Add your own code here>
@@ -294,6 +302,7 @@ void setup() {
   ledcSetup(PWM_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
   ledcAttachPin(PWM_SIGNAL, PWM_CHANNEL);
   ledcWrite(PWM_CHANNEL, DUTY_CYCLE);
+  /*
   pinMode(FLOW_SENSOR1_PIN, INPUT_PULLUP);
   attachInterrupt(FLOW_SENSOR1_PIN, pulseCounter1, FALLING);
   pinMode(RCWL_sensor, INPUT);
@@ -303,7 +312,7 @@ void setup() {
   pinMode(DISTANCE_SENSOR, INPUT);
 
   previousTime = millis();
-
+*/
   sensors.begin();
   sensors.setResolution(sensor1, 12);
 
@@ -351,11 +360,11 @@ void setup() {
   bme.setGasHeater(320, 150); // 320*C for 150 ms
 
 
-
+/*
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "Hi! This is the ElegantOTA site /update.");
   });
-/*
+
   ElegantOTA.begin(&server);    // Start ElegantOTA
   // ElegantOTA callbacks
   ElegantOTA.onStart(onOTAStart);
@@ -363,10 +372,10 @@ void setup() {
   ElegantOTA.onEnd(onOTAEnd);
     // Disable Auto Reboot
   ElegantOTA.setAutoReboot(false);
-*/
+
   server.begin();
   Serial.println("HTTP server started");
-
+*/
 }
 
 
@@ -376,7 +385,7 @@ void loop() {
 // to pause for message reads from setup
 delay(1000);
   {
-
+/*
   currentTime = millis();
   
   // Reset accumulated volume per hour
@@ -403,6 +412,7 @@ float volumePerInterval1 = (pulseCount1 / 450.0) * (interval / 1000.0);
 totalVolumePerHour1 += volumePerInterval1;
 totalVolumePerDay1 += volumePerInterval1;
 
+*/
 
 // Request temperature from DS18B20
   sensors.requestTemperatures();
@@ -422,7 +432,7 @@ float lux = lightMeter.readLightLevel();
     Serial.printf("Pressure = %.2f hPa \n", pressure);
     Serial.printf("Gas Resistance = %.2f KOhm \n", gasResistance);
 
-
+/*
 //read voltage on potentiometer
 int solar_reading = analogRead(SOLAR_INPUT);
 float solar_percentage = (solar_reading / 4095.0) * 100; // Scale to percentage
@@ -442,7 +452,7 @@ Serial.println(battery_reading);
 Serial.print("Battery volts percentage: ");
 Serial.println(battery_percentage);
 
-/* collect data from PIR
+ collect data from PIR
   int motionDetected = digitalRead(motionSensorPin);
   int RCWL_detected = digitalRead(RCWL_sensor);   // read sensor value
 
@@ -490,9 +500,9 @@ Serial.println(battery_percentage);
 
 
   JsonObject device_data = root.createNestedObject("sensors");
-    device_data["flowRate1"] = flowRate1;
-    device_data["totalVolumePerHour1"] = totalVolumePerHour1;
-    device_data["totalVolumePerDay1"] = totalVolumePerDay1;
+    //device_data["flowRate1"] = flowRate1;
+    //device_data["totalVolumePerHour1"] = totalVolumePerHour1;
+    //device_data["totalVolumePerDay1"] = totalVolumePerDay1;
     device_data["temperature_water"] = temperature_water;
     device_data["pulse length in uS:"] = duration;
     device_data["distance in cm:"] = distance;
@@ -500,10 +510,10 @@ Serial.println(battery_percentage);
     //device_data["PIR"] = motionDetected;
     //device_data["RCWL-0516"] = RCWL_detected;
     device_data["Lightmeter"] = lux;
-    device_data["battery value"] = battery_reading;
-    device_data["battery value percentage"] = battery_percentage;
-    device_data["solar value"] = solar_reading;
-    device_data["solar value percentage"] = solar_percentage;
+    //device_data["battery value"] = battery_reading;
+    //device_data["battery value percentage"] = battery_percentage;
+    //device_data["solar value"] = solar_reading;
+    //device_data["solar value percentage"] = solar_percentage;
     device_data["bme680_temperature"] = bmetemperature;
     device_data["bme680_humidity"] = humidity;
     device_data["bme680_pressure"] = pressure;
@@ -529,7 +539,7 @@ Serial.println(battery_percentage);
             Serial.println("Message acknowledgment timeout.");
             }
   }
-
+/*
 
 Serial.print("Flow Rate Sensor 1: ");
 Serial.print(flowRate1);
@@ -563,7 +573,7 @@ attachInterrupt(FLOW_SENSOR1_PIN, pulseCounter1, RISING);
             Serial.println("Awake period elapsed, can go to sleep now.");
         }
     }
-
+*/
     // Final decision to go to sleep
     if (!suspendSleep && !awakeDueToPin27) {
         Serial.println("Conditions for staying awake not met, going to sleep.");
@@ -573,4 +583,3 @@ attachInterrupt(FLOW_SENSOR1_PIN, pulseCounter1, RISING);
     delay(500); // Minor delay for loop stability
 }
   }
-}
