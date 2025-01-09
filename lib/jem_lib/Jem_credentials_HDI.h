@@ -8,3 +8,6 @@
 #define MQTT_ID  "jem"
 #define MQTT_PASSWORD  "Th1spassw0rd"
 #define MQTT_HOST IPAddress(10, 0, 1, 30)
+#define MQTT_TOPIC_PREFIX "esp/HDI/tank_box_1"
+#define DEVICE_NAME "tank_box_1"
+

@@ -1,151 +1,169 @@
 #include <Arduino.h>
+#include <Wire.h>
 #include <WiFi.h>
-extern "C" {
-  #include "freertos/FreeRTOS.h"
-  #include "freertos/timers.h"
-}
 #include <AsyncMqttClient.h>
-//#include <Wire.h>
-//#include <SPI.h>
+#include <Jem_credentials_Barachini.h>
+#include <ArduinoJson.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <Adafruit_BME680.h>
 #include <Adafruit_Sensor.h>
-//#include "Adafruit_BME680.h"
-//#include <TelnetStream.h>
-//#include "TelnetPrint.h"
-#include <DHT.h>
-#include <VL53L0X.h>
-//#include <HCSR04.h>
-//#include <OneWire.h>
-//#include <DallasTemperature.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <BH1750.h>
+//#include <ElegantOTA.h>
 
 
-//Water sensor
-#define water_sensor 17
-//const int SensorDataPin = 14;
+#define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
+#define TIME_TO_SLEEP  1200        /* Time ESP32 will go to sleep for (in seconds) */
 
-//DHT22 temperature and humidity
-#define DHTPIN 33
-#define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+#define ACK_TOPIC "esp32/ack"
 
-//for flow calculation
-long currentMillisflow = 0;
-long previousMillisflow = 0;
-int intervalflow= 1000;
-boolean ledState = LOW;
-float calibrationFactor = 4.5;
-volatile byte pulseCount;
-byte pulse1Sec = 0;
-float flowRate;
-unsigned int flowMilliLitres;
-unsigned long totalMilliLitres;
+bool messageAcknowledged = false;
+bool awakeDueToPin27 = false;
+unsigned long wakeupTime = 0; // Stores the time when wake-up occurred
+const unsigned long awakePeriod = 0.5 * 60 * 1000; // 30s awake in ms
+bool suspendSleep = false; // suspend sleep for OTA update 
+unsigned long suspendSleepTimeout = 60000; // length in milliseconds
+unsigned long suspendSleepSetTime = 0; // When suspendSleep was last set
+bool timeToSleep = true; 
 
-
-//Define the Digital Input on the ESP for RCWL-0516
-#define movement_signal 5
-#define LedPin 18
-
-//change assigned pins for VL53L0X - to match wiring on board used previously for SR04
-#define I2C_SDA 16
-#define I2C_SCL 19
+//parameter for PWM A02YYM depth sensor
+#define DISTANCE_SENSOR 26
+#define PWM_SIGNAL 25
+#define PWM_CHANNEL 0
+#define PWM_RESOLUTION 8 // We are using 8 bits for resolution
+#define PWM_FREQUENCY 20 // 10Hz corresponds to a period of 100ms
+#define DUTY_CYCLE 100 // 50% duty cycle. Max value for 8-bit resolution is 255
+#define CONVERSION_FACTOR 57 // 57 microseconds per cm
 
 
-//tap IR sensor
-const int tap_digital_pin = 39;
-const int tap_analog_pin = 36;
+//define flow sensor
+#define FLOW_SENSOR1_PIN 16
 
-float tap_position_analogue;
-bool tap_position_digital;
+//define RCWL sensor
+#define RCWL_sensor 34
+int state = LOW;            // by default, no motion detected
+int RCWL_detected = 0;
+#define  LED1 23
 
+//define lightmeter 
+BH1750 lightMeter;
 
+//water level variables
+float tank_depth = 189; // the height of the empty tank in cm
 
-//Pump running microphone
-int sound_input = 32; //Define the Digital Input on the Arduino for the sensor signal
-int Sensor_State = 0;
+//Define temperature sensor
+#define DS18B20_PIN 13
 
-//int movement_signal
-int Mov_Sensor_State = 1;
+// define PIR and LED
+//const int motionSensorPin = 16; // (marked PIR on Board)
+//const int LED1 = 4; // LED connected to digital pin 4
 
-//int water_sensor
-int Water_Sensor_State = 1;
+// define ADC input from battery
+#define BATTERY_INPUT 32
 
-//time of flight VL53L0X
-VL53L0X tofsensor;
+// define ADC input from solar panel
+#define SOLAR_INPUT 35
 
+// Setup a oneWire instance to communicate with any OneWire device
+OneWire oneWire(DS18B20_PIN);
 
+// Pass our oneWire reference to DallasTemperature library instance
+DallasTemperature sensors(&oneWire);
 
-//pressure sensor
-//float V, P;
-//const float  OffSet = 464 ;
+//Setup BME680 sensor om I2C
+Adafruit_BME680 bme; 
 
-//adc input pin 35
-const int analoguePin = 35;
-int analogueValue = 0;
-
-unsigned long lastTime = 0;
-unsigned long timerDelay = 3000;  // send readings timer
-
+// Variables to hold sensor readings
+float bmetemperature;
 float humidity;
-float temperature;
-
-//initialise DHT22
-DHT dht(DHTPIN, DHTTYPE);
-
-#define SENSOR  23 // flow meter
-
-/*/ Telnetstream settings
-byte mac[] = { 0x38, 0xf9, 0xd3, 0x75, 0x67, 0x36 };
-IPAddress myIP(10, 0, 1, 28);
-*/
-
-//local wifi network settings
-
-/*/RPR location data
-#define WIFI_SSID "10RPRMandJ"
-#define WIFI_PASSWORD "Th1s_1s_0ur_Netw0rk"
-
-// Raspberry Pi Mosquitto MQTT Broker
-#define MQTT_HOST IPAddress(192, 168, 1, 125)
-*/
-
-//HDI location data
-#define WIFI_SSID "HealthDataInsight"
-#define WIFI_PASSWORD "qu1ckstartgu1de"
-
-// Raspberry Pi Mosquitto MQTT Broker
-#define MQTT_HOST IPAddress(10, 0, 1, 30)
-
-// For a cloud MQTT broker, type the domain name
-//#define MQTT_HOST "example.com"
-#define MQTT_PORT 1883
-
-// MQTT Topics
-#define MQTT_PUB_LOFT_DIST "esp/VL53L0X/loft/distancecm"
-#define MQTT_PUB_LOFT_Tank_percent "esp/VL53L0X/loft/tank_percent"
-#define MQTT_PUB_LOFT_WATER_PRES "esp/WPS/loft/pressure"
-#define MQTT_PUB_LOFT_VIBRATION "esp/sw420/loft/vibration"
-#define MQTT_PUB_LOFT_TEMP "esp/dht22/loft/temp"
-#define MQTT_PUB_LOFT_HUM "esp/dht22/loft/humidity"
-#define MQTT_PUB_LOFT_Flow_rate "esp/yf-sr201/loft/flow"
-#define MQTT_PUB_LOFT_Output_volume  "esp/yf-sr201/loft/volume"
-#define MQTT_PUB_LOFT_movement  "esp/rcwl-0516/loft/movement"
-#define MQTT_PUB_LOFT_water  "esp/gws/loft/water"
-#define MQTT_PUB_LOFT_tap_position_a  "esp/tcrt5000/loft/tap_on_a"
-#define MQTT_PUB_LOFT_tap_position_d  "esp/tcrt5000/loft/tap_on_d"
-#define MQTT_PUB_LOFT_pin35_analogue  "esp/pin35_analogue"
+float pressure;
+float gasResistance;
 
 
-//water level variables (depth in cm)
-float tank_fill;
-float distance_to_water;
-float tank_depth = 400;
-float tank_fraction;
+// Address of the sensor
+//DeviceAddress sensor1 = { 0x28, 0xB3, 0x9A, 0x0C, 0x0, 0x0, 0x0, 0x58 };
+DeviceAddress sensor1 = { 0x28, 0x29, 0x13, 0x0F, 0x12, 0x21, 0x1, 0xC8 };
 
+
+RTC_DATA_ATTR int bootCount = 0;
+volatile int pulseCount1 = 0;
+float flowRate1;
+float totalVolumePerHour1 = 0;
+float totalVolumePerDay1 = 0;
+
+
+unsigned long currentTime;
+unsigned long previousTime;
+unsigned long interval = 5000; // interval to calculate flow rate (in milliseconds)
+
+unsigned long resetHourTime = 0;
+unsigned long resetDayTime = 0;
+
+void ICACHE_RAM_ATTR pulseCounter1() {
+  pulseCount1++;
+}
+
+// set detection of pulses on pin 27
+
+volatile bool pulseDetected = false;  // variable to keep track of pulse detection
+
+void ICACHE_RAM_ATTR pulseDetection() {  // ISR to set pulseDetected to true when a pulse is detected
+  pulseDetected = true;
+}
 
 AsyncMqttClient mqttClient;
 TimerHandle_t mqttReconnectTimer;
 TimerHandle_t wifiReconnectTimer;
 
-long unsigned previousMillis = 0;   // Stores last time temperature was published
-const long interval = 1000;        // Interval at which to publish sensor readings
+uint16_t lastPacketId = 0;
+
+AsyncWebServer server(80);  // Initialize the web server
+
+unsigned long ota_progress_millis = 0;
+
+/*void onOTAStart() {
+  // Log when OTA has started
+  Serial.println("OTA update started!");
+  // <Add your own code here>
+}
+
+void onOTAProgress(size_t current, size_t final) {
+  // Log every 1 second
+  if (millis() - ota_progress_millis > 1000) {
+    ota_progress_millis = millis();
+    Serial.printf("OTA Progress Current: %u bytes, Final: %u bytes\n", current, final);
+  }
+}
+
+void onOTAEnd(bool success) {
+  // Log when OTA has finished
+  if (success) {
+    Serial.println("OTA update finished successfully!");
+  } else {
+    Serial.println("There was an error during OTA update!");
+  }
+  // <Add your own code here>
+}
+*/
+
+void getBME680Readings(){
+  // Tell BME680 to begin measurement.
+  unsigned long endTime = bme.beginReading();
+  if (endTime == 0) {
+    Serial.println(F("Failed to begin reading :("));
+    return;
+  }
+  if (!bme.endReading()) {
+    Serial.println(F("Failed to complete reading :("));
+    return;
+  }
+  bmetemperature = bme.temperature;
+  pressure = bme.pressure / 100.0;
+  humidity = bme.humidity;
+  gasResistance = bme.gas_resistance / 1000.0;
+}
 
 void connectToWifi() {
   Serial.println("Connecting to Wi-Fi...");
@@ -155,6 +173,18 @@ void connectToWifi() {
 void connectToMqtt() {
   Serial.println("Connecting to MQTT...");
   mqttClient.connect();
+}
+
+void onMqttConnect(bool sessionPresent) {
+  Serial.println("Connected to MQTT.");
+
+  // define the topic to subscribe
+  uint16_t packetIdSub1 = mqttClient.subscribe("esp32/update", 2);
+  Serial.print("Subscribing at QoS 2, packetId: ");
+  Serial.println(packetIdSub1);
+  //mqttClient.publish("esp32/update" 0, true, esp32/update "received an MQTT message");
+  //Serial.println("Publishing at QoS 0");
+
 }
 
 void WiFiEvent(WiFiEvent_t event) {
@@ -174,356 +204,373 @@ void WiFiEvent(WiFiEvent_t event) {
   }
 }
 
-void onMqttConnect(bool sessionPresent) {
-  Serial.println("Connected to MQTT.");
-  Serial.print("Session present: ");
-  Serial.println(sessionPresent);
+void onMqttPublish(uint16_t packetId) {
+  if (packetId == lastPacketId) {
+    messageAcknowledged = true;
+  }
 }
+
+void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
+  Serial.print("Message received on topic: ");
+  Serial.println(topic);
+  Serial.print("Message: ");
+  String messageTemp;
+  for (int i = 0; i < len; i++) {
+    messageTemp += (char)payload[i];
+  }
+  Serial.println(messageTemp);
+  if (strcmp(topic, "esp32/update") == 0) {
+    if (messageTemp == "start") {
+      suspendSleep = true;
+      suspendSleepSetTime = millis(); // Capture the time when suspendSleep was set
+      Serial.println("Update start message received");
+
+      // Acknowledge receipt of the start message
+      mqttClient.publish(ACK_TOPIC, 0, false, "stop received");
+    } else if (messageTemp == "stop") {
+      suspendSleep = false;
+      Serial.println("Update stop message received");
+
+      // Acknowledge receipt of the stop message
+      mqttClient.publish(ACK_TOPIC, 0, false, "stop received");
+    }
+  }
+}
+
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
   Serial.println("Disconnected from MQTT.");
   if (WiFi.isConnected()) {
-    xTimerStart(mqttReconnectTimer, 0);
+    connectToMqtt(); 
   }
-
 }
 
-void onMqttPublish(uint16_t packetId) {
-  Serial.print("Publish acknowledged.");
-  Serial.print("  packetId: ");
-  Serial.println(packetId);
+void go_to_sleep() {
+    Serial.println("Going to sleep now.");
+    delay(1000);
+    Serial.flush();
+    esp_deep_sleep_start();
 }
 
-void IRAM_ATTR pulseCounter()
-{
-  pulseCount++;
+void print_wakeup_reason(){
+  esp_sleep_wakeup_cause_t wakeup_reason;
+
+  wakeup_reason = esp_sleep_get_wakeup_cause();
+
+  switch(wakeup_reason)
+  {
+    case ESP_SLEEP_WAKEUP_EXT0 : Serial.println("Wakeup caused by external signal using RTC_IO"); break;
+    case ESP_SLEEP_WAKEUP_TIMER : Serial.println("Wakeup caused by timer"); break;
+    default : Serial.printf("Wakeup was not caused by deep sleep: %d\n",wakeup_reason); break;
+  }
 }
-
-
 
 void setup() {
   Serial.begin(115200);
-  Serial.println();
-  pinMode(sound_input, INPUT); //Set pin as input for microphone for motor sound
-  pinMode (movement_signal, INPUT); // sets the pin for the motion detector
-  pinMode (LedPin, OUTPUT);
-  pinMode(water_sensor, INPUT);
-  pinMode(tap_digital_pin,INPUT); //sets the digital pin input for the tap IR detector (note pin 36 does not accept digital)
+  delay(1000); 
 
-  Wire.begin(I2C_SDA, I2C_SCL); // SDA (16), SCL (19) for VL530X - rather than defaults
+  bootCount++;
+  Serial.printf("Boot number: %d\n", bootCount);
+  
+  //Print the wakeup reason for ESP32
+  print_wakeup_reason();
 
-  tofsensor.setTimeout(1000);
-/*  if (!tofsensor.init())
-  {
-    Serial.println("Failed to detect and initialize time of flight sensor");
-    while (1) {}
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_27,1);
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+  Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) +
+  " Seconds");
+
+
+// Check the wake-up reason
+  esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
+  if (wakeup_reason == ESP_SLEEP_WAKEUP_EXT0) {
+    awakeDueToPin27 = true;
+    wakeupTime = millis(); // Capture the wake-up time
   }
-*/
 
-//DHT 22 Start
-  Serial.println(F("DHTxx test!"));
-  dht.begin();
-  delay(2000);
+ 
+
+  // setup PWM
+  ledcSetup(PWM_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
+  ledcAttachPin(PWM_SIGNAL, PWM_CHANNEL);
+  ledcWrite(PWM_CHANNEL, DUTY_CYCLE);
+  pinMode(FLOW_SENSOR1_PIN, INPUT_PULLUP);
+  attachInterrupt(FLOW_SENSOR1_PIN, pulseCounter1, FALLING);
+  pinMode(RCWL_sensor, INPUT);
+  pinMode(SOLAR_INPUT, INPUT);
+  pinMode(BATTERY_INPUT, INPUT);
+  pinMode(LED1, OUTPUT);
+  pinMode(DISTANCE_SENSOR, INPUT);
+
+  previousTime = millis();
+
+  sensors.begin();
+  sensors.setResolution(sensor1, 12);
+
+ 
+  Wire.begin();
+
+  lightMeter.begin();
+  Serial.println(F("BH1750 Test begin"));
+
+  if (!bme.begin()) {
+    Serial.println(F("Could not find a valid BME680 sensor, check wiring!"));
+    while (1);
+  }
+
+
 
   mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
   wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
 
   WiFi.onEvent(WiFiEvent);
 
+
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
-  //mqttClient.onSubscribe(onMqttSubscribe);
-  //mqttClient.onUnsubscribe(onMqttUnsubscribe);
   mqttClient.onPublish(onMqttPublish);
+  mqttClient.onMessage(onMqttMessage);
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-  // If your broker requires authentication (username and password), set them below
-  mqttClient.setCredentials("jem", "Th1spassw0rd");
+  mqttClient.setCredentials(MQTT_ID, MQTT_PASSWORD);
   connectToWifi();
 
+  // Wait for WiFi to connect
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.println("Waiting for WiFi...");
+  }
+// subscribe to MQTT topic to allow stay awake
+  mqttClient.subscribe("esp32/update", 2);
 
-  pulseCount = 0;
-  flowRate = 0.0;
-  flowMilliLitres = 0;
-  totalMilliLitres = 0;
-  previousMillisflow = 0;
 
-  attachInterrupt(digitalPinToInterrupt(SENSOR), pulseCounter, FALLING);
+// Set up oversampling and filter initialization
+  bme.setTemperatureOversampling(BME680_OS_8X);
+  bme.setHumidityOversampling(BME680_OS_2X);
+  bme.setPressureOversampling(BME680_OS_4X);
+  bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
+  bme.setGasHeater(320, 150); // 320*C for 150 ms
+
+
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "Hi! This is the ElegantOTA site /update.");
+  });
+/*
+  ElegantOTA.begin(&server);    // Start ElegantOTA
+  // ElegantOTA callbacks
+  ElegantOTA.onStart(onOTAStart);
+  ElegantOTA.onProgress(onOTAProgress);
+  ElegantOTA.onEnd(onOTAEnd);
+    // Disable Auto Reboot
+  ElegantOTA.setAutoReboot(false);
+*/
+  server.begin();
+  Serial.println("HTTP server started");
 
 }
 
 
 void loop() {
+//ElegantOTA.loop();
 
-  int sensorValue = digitalRead(movement_signal);
-  if (sensorValue == HIGH) {
-    digitalWrite (LedPin, HIGH);
+// to pause for message reads from setup
+delay(1000);
+  {
+
+  currentTime = millis();
+  
+  // Reset accumulated volume per hour
+  if (currentTime - resetHourTime >= 3600000) {
+    resetHourTime = currentTime;
+    totalVolumePerHour1 = 0;
   }
-  else {
-    digitalWrite (LedPin, LOW);
+
+  // Reset accumulated volume per day
+  if (currentTime - resetDayTime >= 86400000) {
+    resetDayTime = currentTime;
+    totalVolumePerDay1 = 0;
+  }
+
+  if (currentTime - previousTime >= interval) {
+    previousTime = currentTime;
+
+    detachInterrupt(FLOW_SENSOR1_PIN);
+
+    flowRate1 = (pulseCount1 / 450.0) * (60000.0 / interval); // Calculate flow rate in L/min
+
+
+float volumePerInterval1 = (pulseCount1 / 450.0) * (interval / 1000.0);
+totalVolumePerHour1 += volumePerInterval1;
+totalVolumePerDay1 += volumePerInterval1;
+
+
+// Request temperature from DS18B20
+  sensors.requestTemperatures();
+  float temperature_water = sensors.getTempC(sensor1);  // Get the temperature in Celsius from the sensor at address sensor1
+
+//get data from lightmeter
+float lux = lightMeter.readLightLevel();
+    Serial.print("Light: ");
+    Serial.print(lux);
+    Serial.println(" lx");
+
+//get data from BME680
+    getBME680Readings();
+    Serial.println();
+    Serial.printf("Temperature = %.2f ºC \n", bmetemperature);
+    Serial.printf("Humidity = %.2f % \n", humidity);
+    Serial.printf("Pressure = %.2f hPa \n", pressure);
+    Serial.printf("Gas Resistance = %.2f KOhm \n", gasResistance);
+
+
+//read voltage on potentiometer
+int solar_reading = analogRead(SOLAR_INPUT);
+float solar_percentage = (solar_reading / 4095.0) * 100; // Scale to percentage
+
+Serial.print("Solar Volts value: ");
+Serial.println(solar_reading);
+Serial.print("Solar volts percentage: ");
+Serial.println(solar_percentage);
+
+
+//read voltage on battery
+int battery_reading = analogRead(BATTERY_INPUT);
+float battery_percentage = (battery_reading / 4095.0) * 100; // Scale to percentage
+
+Serial.print("Battery Volts value: ");
+Serial.println(battery_reading);
+Serial.print("Battery volts percentage: ");
+Serial.println(battery_percentage);
+
+/* collect data from PIR
+  int motionDetected = digitalRead(motionSensorPin);
+  int RCWL_detected = digitalRead(RCWL_sensor);   // read sensor value
+
+// If either sensor is triggered, turn the LED on
+  if (motionDetected == HIGH || RCWL_detected == HIGH) {
+    digitalWrite(LED1, HIGH);
+  } else {
+    // Otherwise, turn the LED off
+    digitalWrite(LED1, LOW);
+  }
+
+
+
+// Print motion sensor data to serial monitor
+  Serial.println(motionDetected);
+*/
+
+// collect data from distance sensor A02YY
+  unsigned long duration = pulseIn(DISTANCE_SENSOR, HIGH);
+  float distance = duration / CONVERSION_FACTOR; // Convert the pulse duration to distance in cm
+
+  Serial.print("Duration of pulse in microseconds: ");
+  Serial.println(duration);
+  Serial.print("Distance in cm: ");
+  Serial.println(distance);
+
+  // Calculate the percentage of tank capacity
+  float waterDepth = tank_depth - distance; // Depth of water in cm
+  float capacityPercentage = (waterDepth / tank_depth) * 100; // Percentage of tank capacity
+
+  Serial.print("Water level as percentage of tank capacity: ");
+  Serial.println(capacityPercentage);
+
+  delay(200);
+  
+  if (mqttClient.connected()) {
+    DynamicJsonDocument jsonDoc(1024);
+    JsonObject root = jsonDoc.to<JsonObject>();
+    
+    root["device_name"] = DEVICE_NAME;
+    //root["sleep time in seconds"] = TIME_TO_SLEEP;
+    root["ip_address"] = WiFi.localIP().toString();
+    root["rssi"] = WiFi.RSSI();
+  
+
+
+  JsonObject device_data = root.createNestedObject("sensors");
+    device_data["flowRate1"] = flowRate1;
+    device_data["totalVolumePerHour1"] = totalVolumePerHour1;
+    device_data["totalVolumePerDay1"] = totalVolumePerDay1;
+    device_data["temperature_water"] = temperature_water;
+    device_data["pulse length in uS:"] = duration;
+    device_data["distance in cm:"] = distance;
+    device_data["water_level_percentage"] = capacityPercentage;
+    //device_data["PIR"] = motionDetected;
+    //device_data["RCWL-0516"] = RCWL_detected;
+    device_data["Lightmeter"] = lux;
+    device_data["battery value"] = battery_reading;
+    device_data["battery value percentage"] = battery_percentage;
+    device_data["solar value"] = solar_reading;
+    device_data["solar value percentage"] = solar_percentage;
+    device_data["bme680_temperature"] = bmetemperature;
+    device_data["bme680_humidity"] = humidity;
+    device_data["bme680_pressure"] = pressure;
+    device_data["bme680_gas_resistance"] = gasResistance;
+
+
+    String payload;
+    serializeJson(root, payload);
+
+    mqttClient.publish(MQTT_TOPIC_PREFIX, 0, false, payload.c_str());
+    Serial.printf("Published JSON: %s\n", payload.c_str());
+
+    // Wait for message acknowledgment for a maximum of 5 seconds
+      unsigned long startMillis = millis();
+        while (!messageAcknowledged && (millis() - startMillis <= 5000)) {
+          yield(); // Allows background tasks to process, e.g., WiFi and MQTT
+          }
+
+        if (messageAcknowledged) {
+            Serial.println("Message acknowledged by the broker.");
+            messageAcknowledged = false; // Reset acknowledgment flag
+        } else {
+            Serial.println("Message acknowledgment timeout.");
+            }
+  }
+
+
+Serial.print("Flow Rate Sensor 1: ");
+Serial.print(flowRate1);
+Serial.print(" L/min | Total Volume Per Hour: ");
+Serial.print(totalVolumePerHour1);
+Serial.print(" L | Total Volume Per Day: ");
+Serial.print(totalVolumePerDay1);
+Serial.println(" L");
+
+Serial.println();
+
+pulseCount1 = 0;
+
+attachInterrupt(FLOW_SENSOR1_PIN, pulseCounter1, RISING);
+// MQTT message handling for suspend sleep
+    if (suspendSleep) {
+        if ((millis() - suspendSleepSetTime >= suspendSleepTimeout)) {
+            suspendSleep = false;
+            Serial.println("suspendSleep timeout elapsed, resuming normal operation.");
+        } else {
+            Serial.println("Sleep suspended due to MQTT message, staying awake.");
+        }
     }
 
+    // Awake due to pin 27 handling
+    if (awakeDueToPin27) {
+        if ((millis() - wakeupTime) <= awakePeriod) {
+            Serial.println("Awake due to pin 27, within awake period.");
+        } else {
+            awakeDueToPin27 = false; // Reset flag as the awake period has elapsed
+            Serial.println("Awake period elapsed, can go to sleep now.");
+        }
+    }
 
+    // Final decision to go to sleep
+    if (!suspendSleep && !awakeDueToPin27) {
+        Serial.println("Conditions for staying awake not met, going to sleep.");
+        go_to_sleep();
+    }
 
-  unsigned long currentMillis = millis();
-  // Every X number of seconds (interval = 10 seconds)
-  // it publishes a new MQTT message
-  if (currentMillis - previousMillis >= interval) {
-    // Save the last time a new reading was published
-    previousMillis = currentMillis;
-
-  if ((millis() - lastTime) > timerDelay) {
-
-
-  //Analog pressure sensor
-  //V = analogRead(33) * 5.00 / 1024;     //Sensor output voltage
-  //P = (V - OffSet) * 400;             //Calculate water pressure
-
-
-/*
-  /V = analogRead(33);     //Sensor output voltage
-  //P = (V - OffSet);             //Calculate water pressure
-
-
-  Serial.print("Voltage:");
-  Serial.print(V, 3);
-  Serial.println("V");
-
-  Serial.print(" Water Pressure:");
-  Serial.print(P, 1);
-  Serial.println(" KPa");
-  Serial.println();
-*/
-    lastTime =millis();
-
-
-//DHT22 temp and humidity readings
-humidity = dht.readHumidity();
-  // Read temperature as Celsius (the default)
-temperature = dht.readTemperature();
-
- /* // Check if any reads failed and exit early (to try again).
-  if (isnan(humidity) || isnan(temperature)) {
-    Serial.println(F("Failed to read from DHT sensor!"));
-    return; */
-
-
-  Serial.print(F("Humidity: "));
-  Serial.print(humidity);
-  Serial.println ("%");
-  Serial.print(F("Temperature: "));
-  Serial.print(temperature);
-  Serial.print(F("°C "));
-  Serial.println("\n" );
-
-Serial.print("Motion sensor: ");
-  Mov_Sensor_State = digitalRead(movement_signal);
-  if (Mov_Sensor_State == 1) {
-    Serial.println("Motion detected");
-    Serial.println("\n" );
-
-  }
-  else {
-    Serial.println("All quiet");
-    Serial.println("\n" );
-  }
-
-  {
-  Serial.print("Pump running: ");
-  Sensor_State = digitalRead(sound_input);
-  if (Sensor_State == 1) {
-    Serial.println("Sound of pump running");
-    Serial.println("\n" );
-
-  }
-  else {
-    Serial.println("Pump Off");
-    Serial.println("\n" );
-  }
+    delay(500); // Minor delay for loop stability
 }
-
-//tap open sensor
-{
-  tap_position_analogue = analogRead(tap_analog_pin);
-  tap_position_digital = digitalRead(tap_digital_pin);
-
-Serial.print("Tap Reading Analogue= ");
-  Serial.print(tap_position_analogue);
-  Serial.print("\t Tap Reading Digital= ");
-  Serial.println(tap_position_digital);
-
-}
-//analogue signal pin35
-
-{
-  // Reading potentiometer value
-  analogueValue = analogRead(analoguePin);
-  Serial.print("Analogue PIN35= ");
-  Serial.println(analogueValue);
-  delay(500);
-}
-
-//water sensor
-
-  Serial.print("Water sensor: ");
-  Water_Sensor_State = digitalRead(water_sensor);
-  if (Water_Sensor_State == 1) {
-    Serial.println("No Water- all dry");
-    Serial.println("\n" );
   }
-  else {
-    Serial.println("WATER DETECTED");
-    Serial.println("\n" );
-  }
-
-//VL53L0X senseor
-Serial.print("Distance to water:" "\t");
-  Serial.print(tofsensor.readRangeSingleMillimeters());
-  Serial.print("mm");
-  Serial.println("\n" );
-  distance_to_water = (tofsensor.readRangeSingleMillimeters());
-
-
-
-if (distance_to_water >=(8000)) {
-  tank_fraction = 1;
-  tank_fill= (1-tank_fraction);
-}
-else {
-  tank_fraction = (distance_to_water / tank_depth);
-  tank_fill = (1 - tank_fraction);
-}
-
-  Serial.print("tank fraction:" "\t");
-  Serial.print(tank_fraction);
-  Serial.println("\n" );
-
-  Serial.print("tank fill: " "\t");
-  Serial.print(tank_fill);
-  Serial.println("\n" );
-
-
-  currentMillisflow = millis();
-   if (currentMillisflow - previousMillisflow > intervalflow) {
-
-    pulse1Sec = pulseCount;
-    pulseCount = 0;
-
-    // Because this loop may not complete in exactly 1 second intervals we calculate
-    // the number of milliseconds that have passed since the last execution and use
-    // that to scale the output. We also apply the calibrationFactor to scale the output
-    // based on the number of pulses per second per units of measure (litres/minute in
-    // this case) coming from the sensor.
-    flowRate = ((1000.0 / (millis() - previousMillisflow)) * pulse1Sec) / calibrationFactor;
-    previousMillisflow = millis();
-
-    // Divide the flow rate in litres/minute by 60 to determine how many litres have
-    // passed through the sensor in this 1 second interval, then multiply by 1000 to
-    // convert to millilitres.
-    flowMilliLitres = (flowRate / 60) * 1000;
-
-    // Add the millilitres passed in this second to the cumulative total
-    totalMilliLitres += flowMilliLitres;
-
-    // Print the flow rate for this second in litres / minute
-    Serial.print("Flow rate: ");
-    Serial.print(int(flowRate));  // Print the integer part of the variable
-    Serial.print("L/min");
-    Serial.print("\t");       // Print tab space
-
-    // Print the cumulative total of litres flowed since starting
-    Serial.print("Output Liquid Quantity: ");
-    Serial.print(totalMilliLitres);
-    Serial.print("mL / ");
-    Serial.print(totalMilliLitres / 1000);
-    Serial.println("L");
-    Serial.println("\n" );
-
-    // Publish an MQTT message on topic esp/yf-sr201/loft/flow
-    uint16_t packetIdPub1 = mqttClient.publish(MQTT_PUB_LOFT_Flow_rate, 1, true, String(flowRate).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId: %i", MQTT_PUB_LOFT_Flow_rate, packetIdPub1);
-    Serial.printf("Message: %.2f \n", flowRate);
-
-    // Publish an MQTT message on topic esp/yf-sr201/loft/volume
-    uint16_t packetIdPub2 = mqttClient.publish(MQTT_PUB_LOFT_Output_volume, 1, true, String(totalMilliLitres).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_Output_volume, packetIdPub2);
-    Serial.printf("Message: %i \n", totalMilliLitres);
-
-    //Publish an MQTT message on topic esp/rcwl-0516/loft/movement
-    uint16_t packetIdPub3 = mqttClient.publish(MQTT_PUB_LOFT_movement, 1, true, String(int(Mov_Sensor_State)).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_movement, packetIdPub3);
-    Serial.printf("Message: %i \n", Mov_Sensor_State);
-
-
-    //Publish an MQTT message on topic esp/VL53L0X/loft/distancecm
-    uint16_t packetIdPub4 = mqttClient.publish(MQTT_PUB_LOFT_DIST, 1, true, String(distance_to_water).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_DIST, packetIdPub4);
-    Serial.printf("Message: %i \n", distance_to_water);
-
-    //Publish an MQTT message on topic esp/VL53L0X/loft/tank_percent
-    uint16_t packetIdPub5 = mqttClient.publish(MQTT_PUB_LOFT_Tank_percent, 1, true, String(tank_fill).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_DIST, packetIdPub5);
-    Serial.printf("Message: %i \n", tank_fill);
-
-    //Publish an MQTT message on topic esp/SW420/loft/vibration
-    uint16_t packetIdPub6 = mqttClient.publish(MQTT_PUB_LOFT_VIBRATION, 1, true, String(int(Sensor_State)).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_VIBRATION, packetIdPub6);
-    Serial.printf("Message: %i \n", Sensor_State);
-
-    //Publish an MQTT message on topic esp/SW420/loft/vibration
-    uint16_t packetIdPub7 = mqttClient.publish(MQTT_PUB_LOFT_water, 1, true, String(int(Water_Sensor_State)).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_water, packetIdPub6);
-    Serial.printf("Message: %i \n", Water_Sensor_State);
-
-    //Publish an MQTT message on topic esp/dht22/loft/temp
-    uint16_t packetIdPub8 = mqttClient.publish(MQTT_PUB_LOFT_TEMP, 1, true, String(temperature).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId: %i", MQTT_PUB_LOFT_TEMP, packetIdPub8);
-    Serial.printf("Message: %.2f \n", temperature);
-
-    // Publish an MQTT message on topic esp/dht22/loft/humidity
-    uint16_t packetIdPub9 = mqttClient.publish(MQTT_PUB_LOFT_HUM, 1, true, String(humidity).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_HUM, packetIdPub9);
-    Serial.printf("Message: %.2f \n", humidity);
-
-    // Publish an MQTT message on topic esp/tcrt5000/loft/tap_on_a
-    uint16_t packetIdPub10 = mqttClient.publish(MQTT_PUB_LOFT_tap_position_a, 1, true, String(tap_position_analogue).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_tap_position_a, packetIdPub10);
-    Serial.printf("Message: %i \n", tap_position_analogue);
-
-    // Publish an MQTT message on topic esp/tcrt5000/loft/tap_on_d
-    uint16_t packetIdPub11 = mqttClient.publish(MQTT_PUB_LOFT_tap_position_d, 1, true, String(tap_position_digital).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_tap_position_d, packetIdPub11);
-    Serial.printf("Message: %i \n", tap_position_digital);
-
-// Publish an MQTT message on topic esp/pin35_analogue
-    uint16_t packetIdPub12 = mqttClient.publish(MQTT_PUB_LOFT_pin35_analogue, 1, true, String (int(analogueValue)).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_pin35_analogue, packetIdPub12);
-    Serial.printf("Message: %i \n", analogueValue);
-
-    /*/Publish an MQTT message on topic esp/DS18B20/tempC
-    uint16_t packetIdPub6 = mqttClient.publish(MQTT_PUB_TEMP2C, 1, true, String(temperature_Celsius).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_TEMP2C, packetIdPub5);
-    Serial.printf("Message: %.2f \n", temperature_Celsius);
-
-    //Publish an MQTT message on topic esp/DS18B20/tempF
-    uint16_t packetIdPub7 = mqttClient.publish(MQTT_PUB_TEMP2F, 1, true, String(temperature_Fahrenheit).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_TEMP2F, packetIdPub5);
-    Serial.printf("Message: %.2f \n", temperature_Fahrenheit);
-
-    // Publish an MQTT message on topic esp/bme680/loft/pressure
-    uint16_t packetIdPub3 = mqttClient.publish(MQTT_PUB_LOFT_PRES, 1, true, String(pressure).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_PRES, packetIdPub3);
-    Serial.printf("Message: %.2f \n", pressure);
-
-    // Publish an MQTT message on topic esp/bme680/loft/gas
-    uint16_t packetIdPub4 = mqttClient.publish(MQTT_PUB_LOFT_GAS, 1, true, String(gasResistance).c_str());
-    Serial.printf("Publishing on topic %s at QoS 1, packetId %i: ", MQTT_PUB_LOFT_GAS, packetIdPub4);
-    Serial.printf("Message: %.2f \n", gasResistance);
-*/
-
-
-}
-
- delay(200);
-}}
-
 }
