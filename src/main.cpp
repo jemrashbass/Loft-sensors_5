@@ -89,6 +89,7 @@ float gasResistance;
 // Address of the sensor
 //DeviceAddress sensor1 = { 0x28, 0xB3, 0x9A, 0x0C, 0x0, 0x0, 0x0, 0x58 };
 DeviceAddress sensor1 = { 0x28, 0x29, 0x13, 0x0F, 0x12, 0x21, 0x1, 0xC8 };
+//DeviceAddress sensor1 = { 0x28, 0xDE, 0x61, 0x0C, 0x0, 0x0, 0x0, 0x07 };
 
 
 RTC_DATA_ATTR int bootCount = 0;
@@ -302,6 +303,7 @@ void setup() {
   ledcSetup(PWM_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
   ledcAttachPin(PWM_SIGNAL, PWM_CHANNEL);
   ledcWrite(PWM_CHANNEL, DUTY_CYCLE);
+  pinMode(DISTANCE_SENSOR, INPUT);
   /*
   pinMode(FLOW_SENSOR1_PIN, INPUT_PULLUP);
   attachInterrupt(FLOW_SENSOR1_PIN, pulseCounter1, FALLING);
@@ -309,7 +311,7 @@ void setup() {
   pinMode(SOLAR_INPUT, INPUT);
   pinMode(BATTERY_INPUT, INPUT);
   pinMode(LED1, OUTPUT);
-  pinMode(DISTANCE_SENSOR, INPUT);
+ 
 
   previousTime = millis();
 */
