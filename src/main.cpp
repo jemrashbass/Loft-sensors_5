@@ -36,7 +36,7 @@ bool timeToSleep = true;
 #define PWM_RESOLUTION 8 // We are using 8 bits for resolution
 #define PWM_FREQUENCY 20 // 10Hz corresponds to a period of 100ms
 #define DUTY_CYCLE 100 // 50% duty cycle. Max value for 8-bit resolution is 255
-#define CONVERSION_FACTOR 57 // 57 microseconds per cm
+#define CONVERSION_FACTOR 26 // 57 microseconds per cm
 
 /*
 //define flow sensor
