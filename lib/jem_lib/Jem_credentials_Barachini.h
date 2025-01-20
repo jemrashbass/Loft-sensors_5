@@ -2,8 +2,8 @@
 //place in a folder jem_lib inside lib folder for project
 //add #include <Jem_credentials_Barachini.h>
 
-#define WIFI_SSID  "Barachini_Pizza"
-#define WIFI_PASSWORD "BNth^65yyiocv%"
+#define WIFI_SSID  "Barachini_Giardino"
+#define WIFI_PASSWORD "Hsgwtyxh45636Mt"
 #define MQTT_PORT 1883
 #define MQTT_ID  "jem"
 #define MQTT_PASSWORD  "Th1spassw0rd"
