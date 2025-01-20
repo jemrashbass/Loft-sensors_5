@@ -312,9 +312,9 @@ void setup() {
   pinMode(BATTERY_INPUT, INPUT);
   pinMode(LED1, OUTPUT);
  
-
-  previousTime = millis();
 */
+ // previousTime = millis();
+
   sensors.begin();
   sensors.setResolution(sensor1, 12);
 
