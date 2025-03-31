@@ -8,6 +8,6 @@
 #define MQTT_ID  "jem"
 #define MQTT_PASSWORD  "Th1spassw0rd"
 #define MQTT_HOST IPAddress(192, 168, 3, 125)
-#define MQTT_TOPIC_PREFIX "loft_tank"
+#define MQTT_TOPIC_PREFIX "esp/loft_tank"
 #define DEVICE_NAME "loft_tank_box"
 
