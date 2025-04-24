@@ -2,8 +2,8 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include <AsyncMqttClient.h>
-//#include <Jem_credentials_Barachini.h>
-#include <Jem_credentials_HDI.h>
+#include <Jem_credentials_Barachini.h>
+//#include <Jem_credentials_HDI.h>
 #include <ArduinoJson.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -88,7 +88,8 @@ float pressure;
 float gasResistance;
 
 // Address of the DS18B20 temperature sensor
-DeviceAddress sensor1 = { 0x28, 0x23, 0xB9, 0x51, 0x0, 0x0, 0x0, 0x1A };
+//DeviceAddress sensor1 = { 0x28, 0x23, 0xB9, 0x51, 0x0, 0x0, 0x0, 0x1A };
+DeviceAddress sensor1 = { 0x28, 0x29, 0x13, 0x0F, 0x12, 0x21, 0x1, 0xC8 };
 
 // Boot count stored in RTC memory (persists during deep sleep)
 RTC_DATA_ATTR int bootCount = 0;
