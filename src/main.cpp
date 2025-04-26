@@ -7,11 +7,11 @@
 #include <ArduinoJson.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <Adafruit_BME680.h>
-#include <Adafruit_Sensor.h>
+//#include <Adafruit_BME680.h>
+//#include <Adafruit_Sensor.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
-#include <BH1750.h>
+//#include <BH1750.h>
 //#include <ElegantOTA.h>
 
 /*
@@ -28,7 +28,7 @@
 
 // Deep sleep configuration
 #define uS_TO_S_FACTOR 1000000  /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP  300      /* Time ESP32 will go to sleep for (in seconds) */
+#define TIME_TO_SLEEP  900      /* Time ESP32 will go to sleep for (in seconds) */
 
 // MQTT acknowledgment topic
 #define ACK_TOPIC "esp32/ack"
@@ -57,16 +57,16 @@ bool timeToSleep = true;
 #define MAX_SENSOR_INIT_TIME 1000 // Time to wait for sensor to initialize in ms
 
 // Define lightmeter 
-BH1750 lightMeter;
+//BH1750 lightMeter;
 
 // Water level variables
-float tank_depth = 50;              // Physical height of tank in cm
+float tank_depth = 160;              // Physical height of tank in cm
 float min_pulse_width = 100;        // Minimum valid pulse width in microseconds
 float max_pulse_width = 60000;      // Maximum valid pulse width in microseconds
 
 // Calibration points for tank level based on real measurements
-float distance_tank_empty = 60;     // Distance in cm when tank is 0% empty
-float distance_tank_full = 5;       // Distance in cm when tank is 100% full
+float distance_tank_empty = 160;     // Distance in cm when tank is 0% empty
+float distance_tank_full = 15;       // Distance in cm when tank is 100% full
 float pulse_offset = -35.78;        // Y-intercept from linear regression
 
 // Define temperature sensor
@@ -78,8 +78,8 @@ OneWire oneWire(DS18B20_PIN);
 // Pass our oneWire reference to DallasTemperature library instance
 DallasTemperature sensors(&oneWire);
 
-// Setup BME680 sensor on I2C
-Adafruit_BME680 bme; 
+/* Setup BME680 sensor on I2C
+//Adafruit_BME680 bme; 
 
 // Variables to hold sensor readings
 float bmeTemperature;
@@ -87,9 +87,10 @@ float humidity;
 float pressure;
 float gasResistance;
 
+*/
 // Address of the DS18B20 temperature sensor
 //DeviceAddress sensor1 = { 0x28, 0x23, 0xB9, 0x51, 0x0, 0x0, 0x0, 0x1A };
-DeviceAddress sensor1 = { 0x28, 0x29, 0x13, 0x0F, 0x12, 0x21, 0x1, 0xC8 };
+DeviceAddress sensor1 = { 0x28, 0x8E, 0xB7, 0x16, 0x0, 0x0, 0x0, 0xC8 };
 
 // Boot count stored in RTC memory (persists during deep sleep)
 RTC_DATA_ATTR int bootCount = 0;
@@ -101,9 +102,9 @@ TimerHandle_t wifiReconnectTimer;
 
 uint16_t lastPacketId = 0;
 
-/**
+/*
  * Reads the BME680 sensor and stores values in global variables
- */
+ 
 void getBME680Readings() {
   // Tell BME680 to begin measurement
   unsigned long endTime = bme.beginReading();
@@ -134,6 +135,7 @@ void getBME680Readings() {
   humidity = bme.humidity;
   gasResistance = bme.gas_resistance / 1000.0;
 }
+*/
 
 /**
  * Connect to WiFi network
@@ -141,14 +143,16 @@ void getBME680Readings() {
 void connectToWifi() {
   Serial.println("Connecting to Wi-Fi...");
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  
 }
-
+  
 /**
  * Connect to MQTT broker
  */
 void connectToMqtt() {
   Serial.println("Connecting to MQTT...");
   mqttClient.connect();
+  
 }
 
 /**
@@ -256,7 +260,7 @@ void print_wakeup_reason() {
   wakeup_reason = esp_sleep_get_wakeup_cause();
 
   switch(wakeup_reason) {
-    case ESP_SLEEP_WAKEUP_EXT0 : Serial.println("Wakeup caused by external signal using RTC_IO"); break;
+    //case ESP_SLEEP_WAKEUP_EXT0 : Serial.println("Wakeup caused by external signal using RTC_IO"); break;
     case ESP_SLEEP_WAKEUP_TIMER : Serial.println("Wakeup caused by timer"); break;
     default : Serial.printf("Wakeup was not caused by deep sleep: %d\n", wakeup_reason); break;
   }
@@ -381,7 +385,7 @@ void setup() {
   print_wakeup_reason();
 
   // Enable wake-up sources
-  esp_sleep_enable_ext0_wakeup(GPIO_NUM_27, 1);
+  //esp_sleep_enable_ext0_wakeup(GPIO_NUM_27, 1);
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
   Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) +
   " Seconds");
@@ -410,6 +414,7 @@ void setup() {
   sensors.begin();
   sensors.setResolution(sensor1, 12); // Set to 12-bit resolution
 
+  /*
   // Initialize I2C
   Wire.begin();
 
@@ -433,7 +438,7 @@ void setup() {
     bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
     bme.setGasHeater(320, 150); // 320*C for 150 ms
   }
-
+*/
   // Initialize MQTT and WiFi timers
   mqttReconnectTimer = xTimerCreate("mqttTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToMqtt));
   wifiReconnectTimer = xTimerCreate("wifiTimer", pdMS_TO_TICKS(2000), pdFALSE, (void*)0, reinterpret_cast<TimerCallbackFunction_t>(connectToWifi));
@@ -457,7 +462,7 @@ void setup() {
   // Wait for WiFi to connect
   unsigned long wifiStartTime = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - wifiStartTime < 10000) {
-    delay(500);
+    delay(2000);
     Serial.println("Waiting for WiFi...");
   }
 
@@ -469,7 +474,7 @@ void setup() {
 
 void loop() {
   // Wait a moment before taking readings
-  delay(1000);
+  delay(2000);
   
   // Check if we're connected to both WiFi and MQTT before proceeding
   if(WiFi.status() == WL_CONNECTED && mqttClient.connected()) {
@@ -487,7 +492,7 @@ void loop() {
       Serial.print(temperature_water);
       Serial.println(" °C");
     }
-    
+    /*
     // Get light level from BH1750
     float lux = lightMeter.readLightLevel();
     Serial.print("Light: ");
@@ -500,7 +505,8 @@ void loop() {
     Serial.printf("Humidity = %.2f %%\n", humidity);
     Serial.printf("Pressure = %.2f hPa\n", pressure);
     Serial.printf("Gas Resistance = %.2f KOhm\n", gasResistance);
-    
+    */
+
     // Get distance reading from PWM sensor
     float distance = getDistanceReading();
     
@@ -551,11 +557,11 @@ void loop() {
     device_data["pulse_duration_us"] = (distance > 0) ? (distance * CONVERSION_FACTOR) : 0;
     device_data["distance_cm"] = distance;
     device_data["water_level_percentage"] = capacityPercentage;
-    device_data["light_level_lux"] = lux;
-    device_data["bme680_temperature"] = bmeTemperature;
-    device_data["bme680_humidity"] = humidity;
-    device_data["bme680_pressure"] = pressure;
-    device_data["bme680_gas_resistance"] = gasResistance;
+    //device_data["light_level_lux"] = lux;
+    //device_data["bme680_temperature"] = bmeTemperature;
+    //device_data["bme680_humidity"] = humidity;
+    //device_data["bme680_pressure"] = pressure;
+    //device_data["bme680_gas_resistance"] = gasResistance;
     
     // Serialize and publish the JSON message
     String payload;
